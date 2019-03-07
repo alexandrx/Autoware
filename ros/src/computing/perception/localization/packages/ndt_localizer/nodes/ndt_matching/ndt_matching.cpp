@@ -82,6 +82,13 @@
 
 #include <autoware_msgs/ndt_stat.h>
 
+//added by A.Carballo 2018/08/06
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
+#include "fast_pcl/ndt_cpu/SymmetricEigenSolver.h"
+
+
+
 #define PREDICT_POSE_THRESHOLD 0.5
 
 #define Wa 0.4
@@ -224,6 +231,15 @@ static std::string _offset = "linear";  // linear, zero, quadratic
 static ros::Publisher ndt_reliability_pub;
 static std_msgs::Float32 ndt_reliability;
 
+//added by A.Carballo 2018/08/06
+static visualization_msgs::MarkerArray marker_array;
+static ros::Publisher marker_pub;
+static ros::Publisher pose_cov_pub;
+static const unsigned int MARKER_QUEUE_SIZE = 1000;
+
+//added by A.Carballo on 2018.08.26
+static ros::Publisher match_points_pub;
+
 static bool _get_height = false;
 static bool _use_local_transform = false;
 static bool _use_imu = false;
@@ -244,6 +260,62 @@ static tf::StampedTransform local_transform;
 static unsigned int points_map_num = 0;
 
 pthread_mutex_t mutex;
+
+//added by A.Carballo 2018/08/08
+//Taken from Thomas Moulard "rviz_plugin_covariance"
+// https://github.com/laas/rviz_plugin_covariance.git
+static void makeRightHanded( Eigen::Matrix3d& eigenvectors, Eigen::Vector3d& eigenvalues)
+{
+  // Note that sorting of eigenvalues may end up with left-hand coordinate system.
+  // So here we correctly sort it so that it does end up being righ-handed and normalised.
+  Eigen::Vector3d c0 = eigenvectors.block<3,1>(0,0);  c0.normalize();
+  Eigen::Vector3d c1 = eigenvectors.block<3,1>(0,1);  c1.normalize();
+  Eigen::Vector3d c2 = eigenvectors.block<3,1>(0,2);  c2.normalize();
+  Eigen::Vector3d cc = c0.cross(c1);
+  if (cc.dot(c2) < 0) {
+    eigenvectors << c1, c0, c2;
+    double e = eigenvalues[0];  eigenvalues[0] = eigenvalues[1];  eigenvalues[1] = e;
+  } else {
+    eigenvectors << c0, c1, c2;
+  }
+}
+
+//added by A.Carballo 2018/08/06
+static void getQuaternionFromMatrix(double Xx,double Yx,double Zx,
+                                    double Xy,double Yy,double Zy,
+									double Xz,double Yz,double Zz,
+									double& x,double& y,double& z, double& w)
+{
+    double trace = Xx + Yy + Zz;
+    double epsilon=1E-8;
+    if( trace > epsilon ){
+        double s = 0.5 / sqrt(trace + 1.0);
+        w = 0.25 / s;
+        x = ( Yz - Zy ) * s;
+        y = ( Zx - Xz ) * s;
+        z = ( Xy - Yx ) * s;
+    }else{
+        if ( Xx > Yy && Xx > Zz ){
+             double s = 2.0 * sqrt( 1.0 + Xx - Yy - Zz);
+             w = (Yz - Zy ) / s;
+             x = 0.25 * s;
+             y = (Yx + Xy ) / s;
+             z = (Zx + Xz ) / s;
+        } else if (Yy > Zz) {
+             double s = 2.0 * sqrt( 1.0 + Yy - Xx - Zz);
+             w = (Zx - Xz ) / s;
+             x = (Yx + Xy ) / s;
+             y = 0.25 * s;
+             z = (Zy + Yz ) / s;
+        }else {
+             double s = 2.0 * sqrt( 1.0 + Zz - Xx - Yy );
+             w = (Xy - Yx ) / s;
+             x = (Zx + Xz ) / s;
+             y = (Zy + Yz ) / s;
+             z = 0.25 * s;
+        }
+    }
+}
 
 static void param_callback(const autoware_msgs::ConfigNdt::ConstPtr& input)
 {
@@ -924,6 +996,19 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     Eigen::Matrix4f t(Eigen::Matrix4f::Identity());   // base_link
     Eigen::Matrix4f t2(Eigen::Matrix4f::Identity());  // localizer
 
+    //Added by A.Carballo 2018/8/1
+    Eigen::Matrix<double, 6, 6> covariance(Eigen::Matrix<double, 6, 6>::Identity()); //From Inverse of Hessian
+    //Added by A.Carballo 2018/8/9
+    std::chrono::time_point<std::chrono::system_clock> eigensolver_start, eigensolver_end;
+    double eigensolver_duration = 0.0;
+
+    //Added by A.Carballo on 2018.08.26
+    //----------------
+    std::vector<float> matching_distances;
+    pcl::PointCloud<pcl::PointXYZI> ndt_matching_points;
+    pcl::fromROSMsg(*input, ndt_matching_points);
+    //----------------
+
     std::chrono::time_point<std::chrono::system_clock> align_start, align_end, getFitnessScore_start,
         getFitnessScore_end;
     static double align_time, getFitnessScore_time = 0.0;
@@ -1017,6 +1102,13 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
       getFitnessScore_end = std::chrono::system_clock::now();
 
       trans_probability = ndt.getTransformationProbability();
+
+
+      //Added by A.Carballo 2018/8/1
+      covariance = ndt.getHessian().inverse() * -1.0; //get covariance from Hessian
+
+      //Added by A.Carballo on 2018.08.26
+      matching_distances = ndt.getPointsDistance();
     }
     else if (_method_type == MethodType::PCL_ANH)
     {
@@ -1030,10 +1122,16 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
       iteration = anh_ndt.getFinalNumIteration();
 
       getFitnessScore_start = std::chrono::system_clock::now();
-      fitness_score = anh_ndt.getFitnessScore();
+//      fitness_score = anh_ndt.getFitnessScore();
       getFitnessScore_end = std::chrono::system_clock::now();
 
       trans_probability = anh_ndt.getTransformationProbability();
+
+      //Added by A.Carballo 2018/8/1
+      covariance = anh_ndt.getHessian().inverse() * -1.0; //get covariance from Hessian
+
+      //Added by A.Carballo on 2018.08.26
+      matching_distances = ndt.getPointsDistance();
     }
 #ifdef CUDA_FOUND
     else if (_method_type == MethodType::PCL_ANH_GPU)
@@ -1052,6 +1150,9 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
       getFitnessScore_end = std::chrono::system_clock::now();
 
       trans_probability = anh_gpu_ndt_ptr->getTransformationProbability();
+
+      //Added by A.Carballo 2018/8/1
+      covariance = anh_gpu_ndt_ptr->getHessian().inverse() * -1.0; //get covariance from Hessian
     }
 #endif
 #ifdef USE_PCL_OPENMP
@@ -1071,6 +1172,12 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
       getFitnessScore_end = std::chrono::system_clock::now();
 
       trans_probability = omp_ndt.getTransformationProbability();
+
+      //Added by A.Carballo 2018/8/1
+      covariance = omp_ndt.getHessian().inverse() * -1.0; //get covariance from Hessian
+
+      //Added by A.Carballo on 2018.08.26
+      matching_distances = ndt.getPointsDistance();
     }
 #endif
     align_time = std::chrono::duration_cast<std::chrono::microseconds>(align_end - align_start).count() / 1000.0;
@@ -1407,6 +1514,7 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
         << predict_pose_error << "," << iteration << "," << fitness_score << "," << trans_probability << ","
         << ndt_reliability.data << "," << current_velocity << "," << current_velocity_smooth << "," << current_accel
         << "," << angular_velocity << "," << time_ndt_matching.data << "," << align_time << "," << getFitnessScore_time
+		<< "," << std::endl << std::fixed << std::setprecision(8) << covariance
         << std::endl;
 
     std::cout << "-----------------------------------------------------------------" << std::endl;
@@ -1469,6 +1577,181 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
     previous_accel = current_accel;
 
     previous_estimated_vel_kmph.data = estimated_vel_kmph.data;
+
+    //added by A.Carballo 2018/08/06
+    //if marker array too large, pop the first 2 elements
+    if (marker_array.markers.size() > MARKER_QUEUE_SIZE*10) {
+    	marker_array.markers.erase(marker_array.markers.begin(), marker_array.markers.begin()+2);
+    }
+
+    //Inflate the covariance using fitness_score
+    //Idea from N.Akai's ITSC2018 paper.
+    covariance = covariance * (2.0*200.0*fitness_score); //inflate the values
+
+    //First, publish the covariance as is in posewithcovariance topic
+    geometry_msgs::PoseWithCovarianceStamped pose_cov_msg;
+    pose_cov_msg.header.frame_id = "/map";
+    pose_cov_msg.header.stamp = current_scan_time;
+    pose_cov_msg.pose.pose.position.x = ndt_pose.x;
+    pose_cov_msg.pose.pose.position.y = ndt_pose.y;
+    pose_cov_msg.pose.pose.position.z = ndt_pose.z;
+    pose_cov_msg.pose.pose.orientation.x = ndt_q.x();
+    pose_cov_msg.pose.pose.orientation.y = ndt_q.y();
+    pose_cov_msg.pose.pose.orientation.z = ndt_q.z();
+    pose_cov_msg.pose.pose.orientation.w = ndt_q.w();
+    //pose_cov_msg.pose.covariance = covariance;
+    for (int i = 0; i < covariance.rows(); i++) {
+    	for (int j = 0; j < covariance.cols(); j++) {
+    		pose_cov_msg.pose.covariance[6*i + j] = covariance.data()[6*i+j];
+    	}
+    }
+    if (pose_cov_pub.getNumSubscribers() >= 1) {
+    	pose_cov_pub.publish(pose_cov_msg);
+    }
+
+
+    //Next, publish the covariance visualization markers
+    //const double chi2 = 11.345; //for 99% confidence and 3 dof (3 variables)
+    const double chi2 = 7.815; //for 95% confidence and 3 dof (3 variables)
+    static unsigned int id_counter = 0;
+    //compute the eigenvalues/eigenvectors of the covariance matrix
+    //position data
+    eigensolver_start = std::chrono::system_clock::now();
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver1(covariance.topLeftCorner<3,3>());
+    if (eigensolver1.info() != Eigen::Success) return; //if failed finding the solution
+    Eigen::Vector3d eigenvalues(Eigen::Vector3d::Identity());
+    Eigen::Matrix3d eigenvectors(Eigen::Matrix3d::Zero());
+    eigenvalues = eigensolver1.eigenvalues();
+    eigenvectors = eigensolver1.eigenvectors();
+    eigensolver_end = std::chrono::system_clock::now();
+    eigensolver_duration = std::chrono::duration_cast<std::chrono::microseconds>(eigensolver_end - eigensolver_start).count() / 1000.0;
+    std::cout << "EigenSolver for position computed in " << eigensolver_duration << " sec" << std::endl;
+    if (eigenvalues.sum() > 50) return; //if values are too large don't draw
+    // Be sure we have a right-handed orientation system
+    makeRightHanded(eigenvectors, eigenvalues);
+    ofs << "position eig.vals: " << std::fixed << std::setprecision(8) <<
+        		eigenvalues.data()[0] << "," << eigenvalues.data()[1] << "," << eigenvalues.data()[2] << std::endl;
+    //prepare and publish the marker
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "/map";
+    marker.header.stamp = ros::Time();
+    marker.ns = "position_covariance";
+    marker.id = (++id_counter % (MARKER_QUEUE_SIZE*10));
+    marker.type = visualization_msgs::Marker::SPHERE;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = ndt_pose.x;
+    marker.pose.position.y = ndt_pose.y;
+    marker.pose.position.z = ndt_pose.z;
+    double Xx = eigenvectors.data()[3*0 + 0];
+    double Yx = eigenvectors.data()[3*0 + 1];
+    double Zx = eigenvectors.data()[3*0 + 2];
+    double Xy = eigenvectors.data()[3*1 + 0];
+    double Yy = eigenvectors.data()[3*1 + 1];
+    double Zy = eigenvectors.data()[3*1 + 2];
+    double Xz = eigenvectors.data()[3*2 + 0];
+    double Yz = eigenvectors.data()[3*2 + 1];
+    double Zz = eigenvectors.data()[3*2 + 2];
+    double qX = 0.0;
+    double qY = 0.0;
+    double qZ = 0.0;
+    double qW = 0.0;
+    getQuaternionFromMatrix(Xx, Yx, Zx,
+    						Xy, Yy, Zy,
+							Xz, Yz, Zz,
+							qX, qY, qZ, qW);
+    marker.pose.orientation.x = qX;
+    marker.pose.orientation.y = qY;
+    marker.pose.orientation.z = qZ;
+    marker.pose.orientation.w = qW;
+    marker.scale.x = sqrt(eigenvalues.data()[0]*chi2);
+    marker.scale.y = sqrt(eigenvalues.data()[1]*chi2);
+    marker.scale.z = sqrt(eigenvalues.data()[2]*chi2);
+    marker.color.r = 1.0;
+    marker.color.g = 0.0;
+    marker.color.b = 1.0;
+    marker.color.a = 0.5;
+    marker.lifetime = ros::Duration();
+    marker_array.markers.push_back(marker); //position covariance
+    eigensolver_end = std::chrono::system_clock::now();
+    eigensolver_duration = std::chrono::duration_cast<std::chrono::microseconds>(eigensolver_end - eigensolver_start).count() / 1000.0;
+    std::cout << "Marker for position computed in " << eigensolver_duration << " sec" << std::endl;
+
+    //compute the eigenvalues/eigenvectors of the covariance matrix
+	//orientation data
+    eigensolver_start = std::chrono::system_clock::now();
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigensolver2(covariance.bottomRightCorner<3,3>());
+    if (eigensolver2.info() != Eigen::Success) return;
+    eigenvalues = eigensolver2.eigenvalues();
+    eigenvectors = eigensolver2.eigenvectors();
+    eigensolver_end = std::chrono::system_clock::now();
+    eigensolver_duration = std::chrono::duration_cast<std::chrono::microseconds>(eigensolver_end - eigensolver_start).count() / 1000.0;
+    std::cout << "EigenSolver for orientation computed in " << eigensolver_duration << " sec" << std::endl;
+    if (eigenvalues.sum() > 4.0*M_PI) return; //if values are too large don't draw
+    // Be sure we have a right-handed orientation system
+    makeRightHanded(eigenvectors, eigenvalues);
+    ofs << "orientation eig.vals: " << std::fixed << std::setprecision(8) <<
+    		eigenvalues.data()[0] << "," << eigenvalues.data()[1] << "," << eigenvalues.data()[2] << std::endl;
+    //prepare and publish the marker
+	marker.ns = "orientation_covariance";
+	marker.type = visualization_msgs::Marker::SPHERE;
+	marker.action = visualization_msgs::Marker::ADD;
+	marker.pose.position.x = ndt_pose.x;
+	marker.pose.position.y = ndt_pose.y;
+	marker.pose.position.z = ndt_pose.z;
+    Xx = eigenvectors.data()[3*0 + 0];
+    Yx = eigenvectors.data()[3*0 + 1];
+    Zx = eigenvectors.data()[3*0 + 2];
+    Xy = eigenvectors.data()[3*1 + 0];
+    Yy = eigenvectors.data()[3*1 + 1];
+    Zy = eigenvectors.data()[3*1 + 2];
+    Xz = eigenvectors.data()[3*2 + 0];
+    Yz = eigenvectors.data()[3*2 + 1];
+    Zz = eigenvectors.data()[3*2 + 2];
+	qX = 0.0;
+	qY = 0.0;
+	qZ = 0.0;
+	qW = 0.0;
+	getQuaternionFromMatrix(Xx, Yx, Zx,
+							Xy, Yy, Zy,
+							Xz, Yz, Zz,
+							qX, qY, qZ, qW);
+	marker.pose.orientation.x = qX;
+	marker.pose.orientation.y = qY;
+	marker.pose.orientation.z = qZ;
+	marker.pose.orientation.w = qW;
+    marker.scale.x = sqrt(eigenvalues.data()[0]*chi2)*10;
+    marker.scale.y = sqrt(eigenvalues.data()[1]*chi2)*10;
+    marker.scale.z = sqrt(eigenvalues.data()[2]*chi2)*10;
+	marker.color.r = 1.0;
+	marker.color.g = 1.0;
+	marker.color.b = 0.0;
+	marker.color.a = 0.5;
+	marker.lifetime = ros::Duration();
+	marker_array.markers.push_back(marker); //orientation covariance
+    eigensolver_end = std::chrono::system_clock::now();
+    eigensolver_duration = std::chrono::duration_cast<std::chrono::microseconds>(eigensolver_end - eigensolver_start).count() / 1000.0;
+    std::cout << "Marker for orientation computed in " << eigensolver_duration << " sec" << std::endl;
+
+    if (marker_pub.getNumSubscribers() >= 1) {
+    	marker_pub.publish(marker_array);
+    }
+
+    //Added by A.Carballo on 2018.08.26
+    if (matching_distances.size()) {
+    	auto result = std::minmax_element(matching_distances.begin(), matching_distances.end());
+    	float minval = matching_distances[ (result.first - matching_distances.begin()) ];
+    	float maxval = matching_distances[ (result.second - matching_distances.begin()) ];
+        for (size_t i = 0; i < ndt_matching_points.points.size(); i++) {
+        	//ndt_matching_points.points[i].intensity = (matching_distances[i] - minval)/(maxval - minval) * 255;
+        	ndt_matching_points.points[i].intensity = matching_distances[i] + minval;
+        }
+
+		if (match_points_pub.getNumSubscribers() > 0) {// anyone listening?
+			//ndt_matching_points.header=pcl_out_.header;
+			//ndt_matching_points.header.frame_id=source_tf_;
+			match_points_pub.publish(ndt_matching_points);
+		}
+    }
   }
 }
 
@@ -1485,7 +1768,7 @@ void* thread_func(void* args)
     map_callback_queue.callAvailable(ros::WallDuration());
     ros_rate.sleep();
   }
-  
+
   return nullptr;
 }
 
@@ -1621,6 +1904,13 @@ int main(int argc, char** argv)
   time_ndt_matching_pub = nh.advertise<std_msgs::Float32>("/time_ndt_matching", 10);
   ndt_stat_pub = nh.advertise<autoware_msgs::ndt_stat>("/ndt_stat", 10);
   ndt_reliability_pub = nh.advertise<std_msgs::Float32>("/ndt_reliability", 10);
+
+  //added by A.Carballo 2018/08/06
+  marker_pub = nh.advertise<visualization_msgs::MarkerArray>("/ndt_covariance_marker", MARKER_QUEUE_SIZE, true);
+  pose_cov_pub = nh.advertise<geometry_msgs::PoseWithCovarianceStamped>("ndt_pose_covariance", 10);
+
+  //added by A.Carballo on 2018.08.26
+  match_points_pub = nh.advertise< pcl::PointCloud<pcl::PointXYZI > >("/ndt_match_points", 10);
 
   // Subscribers
   ros::Subscriber param_sub = nh.subscribe("config/ndt", 10, param_callback);

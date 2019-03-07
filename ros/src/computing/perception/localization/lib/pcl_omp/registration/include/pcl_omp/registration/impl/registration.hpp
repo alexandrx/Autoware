@@ -157,6 +157,12 @@ pcl_omp::Registration<PointSource, PointTarget, Scalar>::getFitnessScore (double
   std::vector<int> nn_indices (1);
   std::vector<float> nn_dists (1);
 
+  //Added by Alex on 2018.08.26
+  //-------------------
+  tf_points_distance_.clear();
+  tf_points_distance_.resize(input_transformed.points.size ());
+  //-------------------
+  
   // For each point in the source dataset
 #ifndef _OPENMP
   int nr = 0;
@@ -176,6 +182,10 @@ pcl_omp::Registration<PointSource, PointTarget, Scalar>::getFitnessScore (double
       fitness_score += nn_dists[0];
       nr++;
     }
+    //Added by Alex on 2018.08.26
+    //-------------------
+    tf_points_distance_[i] = nn_dists[0];
+    //-------------------    
   }
 #ifdef _OPENMP
   }

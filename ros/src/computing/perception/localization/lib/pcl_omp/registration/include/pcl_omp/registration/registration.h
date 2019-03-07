@@ -600,6 +600,17 @@ namespace pcl_omp
     private:
       /** \brief The point representation used (internal). */
       PointRepresentationConstPtr point_representation_;
+      
+    //Added by Alex on 2018.08.26
+    //----------------
+      std::vector<float> tf_points_distance_;
+    
+    public:
+      std::vector<float> getPointsDistance() {
+      	return tf_points_distance_;
+      }
+    //---------------
+          
     public:
       EIGEN_MAKE_ALIGNED_OPERATOR_NEW
    };

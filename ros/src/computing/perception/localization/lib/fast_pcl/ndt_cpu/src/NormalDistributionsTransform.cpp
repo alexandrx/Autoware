@@ -179,6 +179,9 @@ void NormalDistributionsTransform<PointSourceType, PointTargetType>::computeTran
 	if (source_cloud_->points.size() > 0) {
 		trans_probability_ = score / static_cast<double>(source_cloud_->points.size());
 	}
+
+	/** added by Alex on 2018/08/01 */
+	hessian_ = hessian;
 }
 
 template <typename PointSourceType, typename PointTargetType>
@@ -727,6 +730,12 @@ double NormalDistributionsTransform<PointSourceType, PointTargetType>::getFitnes
 
 	double distance;
 	int nr = 0;
+	
+        //Added by Alex on 2018.08.26
+        //-------------------
+  	tf_points_distance_.clear();
+  	tf_points_distance_.resize(trans_cloud.points.size());
+  	//-------------------	
 
 	for (int i = 0; i < trans_cloud.points.size(); i++) {
 		PointSourceType q = trans_cloud.points[i];
@@ -737,6 +746,11 @@ double NormalDistributionsTransform<PointSourceType, PointTargetType>::getFitnes
 			fitness_score += distance;
 			nr++;
 		}
+		
+		//Added by Alex on 2018.08.26
+    		//-------------------
+    		tf_points_distance_[i] = distance;
+    		//-------------------
 	}
 
 	if (nr > 0) {

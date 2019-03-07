@@ -108,6 +108,27 @@ private:
 
 
 	VoxelGrid<PointSourceType> voxel_grid_;
+
+
+    /** added by Alex on 2018/08/01 */
+      Eigen::Matrix<double, 6, 6> hessian_;
+      
+    //Added by Alex on 2018.08.26
+    //----------------
+      std::vector<float> tf_points_distance_;
+    
+    public:
+      std::vector<float> getPointsDistance() {
+      	return tf_points_distance_;
+      }
+    //---------------
+          
+    public:
+      /** added by Alex on 2018/08/01 */
+      Eigen::Matrix<double, 6, 6> getHessian()
+      {
+         return hessian_;
+      }
 };
 }
 
