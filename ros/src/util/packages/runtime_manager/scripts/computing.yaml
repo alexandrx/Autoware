@@ -42,9 +42,23 @@ subs :
         cmd  : roslaunch lidar_localizer approximate_ndt_mapping.launch
         param: approximate_ndt_mapping
         gui  :
+<<<<<<< HEAD
           dialog : MyDialogNDTMapping
           dialog_width  : 750
           dialog_height : 500
+=======
+          dialog : MyDialogNdtMapping
+          dialog_width  : 700
+          dialog_height : 650
+          incremental_voxel_update:
+            depend : method_type
+            depend_bool : 'lambda v : v == 1'
+            flags : [ nl ]
+          use_odom:
+            flags : [ nl ]
+          imu_topic:
+            flags : [ nl ]
+>>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
       - name : ndt_matching
         desc : ndt_matching desc sample
         cmd  : roslaunch lidar_localizer ndt_matching.launch
@@ -462,6 +476,109 @@ subs :
 #        desc : Feedforward PID waypoint follower
 #        cmd  : roslaunch ff_waypoint_follower ffwaypointfollower_car.launch
 #        param: ff_waypoint_follower
+<<<<<<< HEAD
+=======
+    - name : OpenPlanner - Local planning
+      desc : Local Planner for OpenPlanner
+      subs :
+      - name : op_common_params
+        desc : load common local planning parameters
+        cmd  : roslaunch op_local_planner op_common_params.launch
+        param: op_common_params
+      - name : op_trajectory_generator
+        desc : generating candidate rollout trajectory from global path
+        cmd  : roslaunch op_local_planner op_trajectory_generator.launch
+        param: op_trajectory_generator
+      - name : op_motion_predictor
+        desc : predict behavior and trajectories for moving vehicles
+        cmd  : roslaunch op_local_planner op_motion_predictor.launch
+        param: op_motion_predictor
+      - name : op_trajectory_evaluator
+        desc : evaluate candidate rollout trajectory against the tracked obstacles
+        cmd  : roslaunch op_local_planner op_trajectory_evaluator.launch
+        param: op_trajectory_evaluator
+      - name : op_behavior_selector
+        desc : Decision making by selecting best behavior for local planner
+        cmd  : roslaunch op_local_planner op_behavior_selector.launch
+
+    - name : OpenPlanner - Utilities
+      desc : Testing UI, Loggers , ..
+      subs :
+      - name : op_pose2tf
+        desc : Publish transformation from ndt_pose read from rosbag file
+        cmd  : roslaunch op_utilities op_pose2tf.launch
+        param: op_pose2tf
+      - name : op_bag_player
+        desc : Send step by step simulation signal, read ready for localization rosbags and navigate them frame by frame
+        cmd  : roslaunch op_utilities op_bag_player.launch
+        param: op_bag_player
+    - name : OpenPlanner - Simulator
+      desc : Car, Signs, Detection Simulation for OpenPlanner Test
+      subs :
+      - name : op_perception_simulator
+        desc : Simulate euclidean cluster for LIDAR based object detection of simulated cars
+        cmd  : roslaunch op_simulation_package op_perception_simulator.launch
+        param: op_perception_simulator
+      - name : op_signs_simulator
+        desc : Simulate traffic Signs status for intersections included in the map
+        cmd  : roslaunch op_simulation_package op_signs_simulator.launch
+        param: op_signs_simulator
+      - name : op_car_simulator
+        desc : Simulate a car using OpenPlanner
+        cmd  : roslaunch op_simulation_package op_car_simulator_1.launch
+        param: op_car_simulator
+
+
+    - name : astar_planner
+      desc : astar_planner desc sample
+      subs :
+      - name : obstacle_avoid
+        desc : obstacle_avoid desc sample
+        cmd  : roslaunch astar_planner obstacle_avoid.launch
+        param: obstacle_avoid
+      - name : velocity_set
+        desc : velocity_set desc sample
+        cmd  : roslaunch astar_planner velocity_set.launch
+        param: velocity_set
+        gui  :
+          use_crosswalk_detection : { border : 4, flags : [ all ] }
+          enable_multiple_crosswalk_detection : { border : 4, flags : [ all ] }
+          dialog_width  : 800
+          dialog_height : 400
+    - name : lattice_planner
+      desc : lattice_planner desc sample
+      subs :
+      - name : lattice_velocity_set
+        desc : lattice_velocity_set desc sample
+        cmd  : roslaunch lattice_planner lattice_velocity_set.launch
+        param: lattice_velocity_set
+        gui  :
+          use_crosswalk_detection : { border : 4, flags : [ all ] }
+      - name : path_select
+        desc : path_select desc sample
+        cmd  : rosrun lattice_planner path_select
+      - name : lattice_trajectory_gen
+        desc : lattice_trajectory_gen desc sample
+        cmd  : roslaunch lattice_planner lattice_trajectory_gen.launch
+        param: lane_follower_trajgen
+        gui  :
+          velocity:
+            depend : param_flag
+            depend_bool : 'lambda v : v == 1'
+          lookahead_threshold:
+            depend : param_flag
+            depend_bool : 'lambda v : v == 1'
+          minimum_lookahead_threshold:
+            depend : param_flag
+            depend_bool : 'lambda v : v == 0'
+          threshold_ratio:
+            depend : param_flag
+            depend_bool : 'lambda v : v == 0'
+          stat_topic : [ lf ]
+      - name : lattice_twist_convert
+        desc : lattice_twist_convert desc sample
+        cmd  : rosrun lattice_planner lattice_twist_convert
+>>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
 
     - name : waypoint_maker
       desc : waypoint_maker desc sample
@@ -3899,8 +4016,6 @@ params :
         dash      : ''
         delim     : ':='
 
-
-
   - name  : approximate_ndt_mapping
     topic : /config/approximate_ndt_mapping
     msg   : ConfigApproximateNDTMapping
@@ -3960,14 +4075,33 @@ params :
       min       : 0.0
       max       : 1000
       v         : 100.0
-    - name      : use_imu
-      desc      : Use IMU to try to reduce errors
-      label     : Use IMU
+    - name  : method_type
+      desc  : Method Type
+      label : Method Type
+      kind  : radio_box
+      choices:
+      - pcl_generic
+      - pcl_anh
+      - pcl_anh_gpu
+      - pcl_openmp
+      descs :
+      - PCL Generic Implementation
+      - PCL ANH Implementation
+      - PCL ANH GPU Implementation
+      - PCL OpenMP  Implementation
+      v     : 0
+      cmd_param:
+        dash     : ''
+        delim    : ':='
+    - name      : incremental_voxel_update
+      desc      : incremental voxel update
+      label     : Incremental Voxel Update
       kind      : checkbox
       v         : False
       cmd_param :
         dash      : ''
         delim     : ':='
+<<<<<<< HEAD
     - name      : imu_topic
       desc      : IMU raw data source topic
       label     : imu_topic
@@ -3977,9 +4111,19 @@ params :
       cmd_param :
         dash      : ''
         delim     : ':='
+=======
+>>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
     - name      : use_odom
       desc      : Use Odometry to try to reduce errors (read from /odom_pose)
       label     : Use Odometry
+      kind      : checkbox
+      v         : False
+      cmd_param :
+        dash      : ''
+        delim     : ':='
+    - name      : use_imu
+      desc      : Use IMU to try to reduce errors
+      label     : Use IMU
       kind      : checkbox
       v         : False
       cmd_param :
@@ -3993,11 +4137,11 @@ params :
       cmd_param :
         dash      : ''
         delim     : ':='
-    - name      : use_openmp
-      desc      : Use OpenMP to accelerate computation
-      label     : Use OpenMP
-      kind      : checkbox
-      v         : False
+    - name      : imu_topic
+      desc      : IMU raw data source topic
+      label     : imu_topic
+      v         : /imu_raw
+      kind      : str
       cmd_param :
         dash      : ''
         delim     : ':='
