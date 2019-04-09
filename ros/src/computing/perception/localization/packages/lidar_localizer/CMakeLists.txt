@@ -100,19 +100,13 @@ if (NOT (PCL_VERSION VERSION_LESS "1.7.2"))
 endif (NOT (PCL_VERSION VERSION_LESS "1.7.2"))
 
 
-<<<<<<< HEAD
-add_executable(approximate_ndt_mapping nodes/approximate_ndt_mapping/approximate_ndt_mapping.cpp)
-target_link_libraries(approximate_ndt_mapping ${catkin_LIBRARIES})
-add_dependencies(approximate_ndt_mapping ${catkin_EXPORTED_TARGETS})
-=======
-add_executable(tf_mapping nodes/tf_mapping/tf_mapping.cpp)
-target_link_libraries(tf_mapping ${catkin_LIBRARIES})
-add_dependencies(tf_mapping ${catkin_EXPORTED_TARGETS})
-
-add_executable(lazy_ndt_mapping nodes/lazy_ndt_mapping/lazy_ndt_mapping.cpp)
-target_link_libraries(lazy_ndt_mapping ${catkin_LIBRARIES})
-add_dependencies(lazy_ndt_mapping ${catkin_EXPORTED_TARGETS})
->>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
+#add_executable(tf_mapping nodes/tf_mapping/tf_mapping.cpp)
+#target_link_libraries(tf_mapping ${catkin_LIBRARIES})
+#add_dependencies(tf_mapping ${catkin_EXPORTED_TARGETS})
+#
+#add_executable(lazy_ndt_mapping nodes/lazy_ndt_mapping/lazy_ndt_mapping.cpp)
+#target_link_libraries(lazy_ndt_mapping ${catkin_LIBRARIES})
+#add_dependencies(lazy_ndt_mapping ${catkin_EXPORTED_TARGETS})
 
 add_executable(queue_counter nodes/queue_counter/queue_counter.cpp)
 target_link_libraries(queue_counter ${catkin_LIBRARIES})

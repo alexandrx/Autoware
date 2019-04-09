@@ -42,11 +42,6 @@ subs :
         cmd  : roslaunch lidar_localizer approximate_ndt_mapping.launch
         param: approximate_ndt_mapping
         gui  :
-<<<<<<< HEAD
-          dialog : MyDialogNDTMapping
-          dialog_width  : 750
-          dialog_height : 500
-=======
           dialog : MyDialogNdtMapping
           dialog_width  : 700
           dialog_height : 650
@@ -58,7 +53,6 @@ subs :
             flags : [ nl ]
           imu_topic:
             flags : [ nl ]
->>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
       - name : ndt_matching
         desc : ndt_matching desc sample
         cmd  : roslaunch lidar_localizer ndt_matching.launch
@@ -476,8 +470,7 @@ subs :
 #        desc : Feedforward PID waypoint follower
 #        cmd  : roslaunch ff_waypoint_follower ffwaypointfollower_car.launch
 #        param: ff_waypoint_follower
-<<<<<<< HEAD
-=======
+
     - name : OpenPlanner - Local planning
       desc : Local Planner for OpenPlanner
       subs :
@@ -578,7 +571,6 @@ subs :
       - name : lattice_twist_convert
         desc : lattice_twist_convert desc sample
         cmd  : rosrun lattice_planner lattice_twist_convert
->>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
 
     - name : waypoint_maker
       desc : waypoint_maker desc sample
@@ -4101,7 +4093,6 @@ params :
       cmd_param :
         dash      : ''
         delim     : ':='
-<<<<<<< HEAD
     - name      : imu_topic
       desc      : IMU raw data source topic
       label     : imu_topic
@@ -4111,8 +4102,6 @@ params :
       cmd_param :
         dash      : ''
         delim     : ':='
-=======
->>>>>>> ca871becf93951e8691e5eb6fb410b7f83f631c6
     - name      : use_odom
       desc      : Use Odometry to try to reduce errors (read from /odom_pose)
       label     : Use Odometry
