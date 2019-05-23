@@ -58,6 +58,21 @@
 
 #include <time.h>
 
+struct EIGEN_ALIGN16 PointXYZIS {
+    PCL_ADD_POINT4D;
+    uint16_t intensity;
+    uint16_t scan_id;
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+};
+
+POINT_CLOUD_REGISTER_POINT_STRUCT(PointXYZIS,
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (uint16_t, intensity, intensity)
+    (uint16_t, scan_id, scan_id)
+)
+
 struct pose
 {
   double x;
@@ -129,6 +144,8 @@ static ros::Publisher current_pose_pub;
 static ros::Publisher guess_pose_linaer_pub;
 static geometry_msgs::PoseStamped current_pose_msg, guess_pose_msg;
 
+static ros::Publisher scan_id_pub;
+
 static ros::Publisher ndt_stat_pub;
 static std_msgs::Bool ndt_stat_msg;
 
@@ -148,6 +165,8 @@ static bool _use_odom = false;
 static bool _imu_upside_down = false;
 
 static bool _incremental_voxel_update = false;
+
+static bool _with_scan_id = false;
 
 static std::string _imu_topic = "/imu_raw";
 
@@ -458,6 +477,8 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
   pcl::PointCloud<pcl::PointXYZI>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   pcl::PointCloud<pcl::PointXYZI>::Ptr transformed_scan_ptr(new pcl::PointCloud<pcl::PointXYZI>());
   tf::Quaternion q;
+  
+  static unsigned int _scan_id = 0;
 
   Eigen::Matrix4f t_localizer(Eigen::Matrix4f::Identity());
   Eigen::Matrix4f t_base_link(Eigen::Matrix4f::Identity());
@@ -778,6 +799,27 @@ static void points_callback(const sensor_msgs::PointCloud2::ConstPtr& input)
 #endif
   }
 
+  if (_with_scan_id) {
+  	  PointXYZIS p_;
+	  pcl::PointCloud<PointXYZIS> scan_w_id;
+
+	  for (pcl::PointCloud<pcl::PointXYZI>::const_iterator item = transformed_scan_ptr->begin(); item != transformed_scan_ptr->end(); item++)
+	  {
+		p_.x = item->x;
+		p_.y = item->y;
+		p_.z = item->z;
+		p_.intensity = item->intensity; 
+		p_.scan_id = _scan_id;
+		scan_w_id.push_back(p_);
+	  }
+      pcl::PointCloud<PointXYZIS>::Ptr scan_w_id_ptr(new pcl::PointCloud<PointXYZIS>(scan_w_id));
+	  sensor_msgs::PointCloud2::Ptr scan_id_msg_ptr(new sensor_msgs::PointCloud2);
+	  pcl::toROSMsg(*scan_w_id_ptr, *scan_id_msg_ptr);
+	  scan_id_msg_ptr->header = input->header;
+	  scan_id_pub.publish(*scan_id_msg_ptr);
+  }
+  _scan_id++;
+  
   sensor_msgs::PointCloud2::Ptr map_msg_ptr(new sensor_msgs::PointCloud2);
   pcl::toROSMsg(*map_ptr, *map_msg_ptr);
   ndt_map_pub.publish(*map_msg_ptr);
@@ -1022,6 +1064,8 @@ int main(int argc, char** argv)
   }
 #endif
 
+  private_nh.getParam("cloud_w_scan_id", _with_scan_id);
+
   Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);                 // tl: translation
   Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
@@ -1039,6 +1083,10 @@ int main(int argc, char** argv)
   ros::Subscriber points_sub = nh.subscribe("points_raw", 100000, points_callback);
   ros::Subscriber odom_sub = nh.subscribe("/vehicle/odom", 100000, odom_callback);
   ros::Subscriber imu_sub = nh.subscribe(_imu_topic, 100000, imu_callback);
+  
+  if (_with_scan_id) {
+  	scan_id_pub = nh.advertise<sensor_msgs::PointCloud2>("/aligned_scan_with_id", 1000);
+  }
 
   ros::spin();
 
